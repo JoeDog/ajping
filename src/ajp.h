@@ -21,6 +21,7 @@ extern size_t  AJP13SIZE;
 AJP13    new_ajp13();
 BOOLEAN  ajp13_ping(AJP13 this, SOCK sock);
 BOOLEAN  ajp13_pong(AJP13 this, SOCK sock);
-
+int      ajp13_sent(AJP13 this);
+int      ajp13_recv(AJP13 this);
 
 #endif/*__AJP_H*/
