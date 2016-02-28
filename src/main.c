@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <ajp.h>
 #include <url.h>
@@ -44,6 +45,7 @@ private struct option long_options[] =
   {"debug",        no_argument,       NULL, 'D'},
   {"reps",         required_argument, NULL, 'r'},
   {"time",         required_argument, NULL, 't'},
+  {"ip",           required_argument, NULL, 'i'},
   {0, 0, 0, 0}
 };
 
@@ -82,6 +84,7 @@ __usage()
   puts("  -q, --quiet               QUIET turns verbose off and suppresses output.");
   puts("  -r, --reps=NUM            REPS, number of times to run the test." );
   puts("  -t, --time=NUMm           TIMED testing where \"m\" is modifier S, M, or H");
+  puts("  -i, --ip=NUM              IP version. Choices 4 or 6 (default is 4)");
   puts("");
   puts(copyright);
   /**
@@ -96,11 +99,16 @@ private URL
 __parse_cmdline(int argc, char *argv[])
 {
   int c = 0;
+  int n = 0;
   int nargs;
-  URL url = NULL;
-  my.reps = 0;
+  URL url    = NULL;
+  my.reps    = 0;
+  my.ipv6    = FALSE;
+  my.timeout = 5;
+  my.loop    = TRUE;
+  my.quiet   = FALSE;
 
-  while ((c = getopt_long(argc, argv, "Vhvqdr:t:", long_options, (int *)0)) != EOF) {
+  while ((c = getopt_long(argc, argv, "Vhvqdr:t:i:", long_options, (int *)0)) != EOF) {
     switch (c) {
       case 'V':
         __version(TRUE);
@@ -110,6 +118,16 @@ __parse_cmdline(int argc, char *argv[])
         exit(0);
       case 'r':
         my.reps = atoi(optarg);
+        break;
+      case 't':
+        my.timeout = atoi(optarg);
+        break;
+      case 'q':
+        my.quiet = TRUE;
+        break;
+      case 'i':
+        n = atoi(optarg);
+        if (n == 6) my.ipv6 = TRUE;
         break;
     }
   }   /* end of while c = getopt_long */
@@ -130,17 +148,21 @@ __ajp_ping(URL U)
   char   addr[256];
   int    sent  = 0;
   int    recv  = 0;
+  int    min   = INT_MAX;
+  int    max   = -1;
   double loss  = 0;
   int    count = 0;
   int    limit = (my.reps == 0) ? INT_MAX : my.reps;
   AJP13  ajp   = new_ajp13();
   SOCK   sock  = new_socket(url_get_hostname(U), url_get_port(U));
   struct timeval stop, start;
-  struct timeval first, last;
+  unsigned long int sum = 0;
 
   if (sock == NULL) {
     return FALSE;
   }
+
+  VERBOSE(my.quiet, "--- %s v%s to %s:%d ---", program_name, version_string, url_get_hostname(U), url_get_port(U));
 
   memset(addr, '\0', sizeof(addr));
   if (socket_address(sock) != NULL) {
@@ -149,8 +171,7 @@ __ajp_ping(URL U)
     snprintf(addr, sizeof(addr), "");
   }
  
-  (void)gettimeofday(&first, NULL);
-  while (TRUE) {
+  while (my.loop) {
     (void)gettimeofday(&start, NULL);
     if (ajp13_ping(ajp, sock) == FALSE) {
       return FALSE;
@@ -160,10 +181,13 @@ __ajp_ping(URL U)
     }
     (void)gettimeofday(&stop, NULL);
 
-    printf(
-      " 5 bytes from %s%s: seq=%d time=%lu ms\n", 
+    VERBOSE (my.quiet,
+      " 5 bytes from %s%s: seq=%d time=%lu ms", 
       url_get_hostname(U), addr, count+1, stop.tv_usec - start.tv_usec
     );
+    sum += (stop.tv_usec - start.tv_usec);
+    min  = (stop.tv_usec - start.tv_usec < min) ? stop.tv_usec - start.tv_usec : min;
+    max  = (stop.tv_usec - start.tv_usec > max) ? stop.tv_usec - start.tv_usec : max;
     count++;
     sleep(1);
     if (count >= limit) break;
@@ -175,20 +199,42 @@ __ajp_ping(URL U)
   } else {
     loss = 100;
   }
-  printf("--- %s ajping statistics ---\n", url_get_hostname(U));
-  printf("%d packets sent, %d received, %0.f%% packet loss\n", sent, recv, loss);
+  VERBOSE(my.quiet, "\n--- %s:%d ajping statistics ---", url_get_hostname(U), url_get_port(U));
+  VERBOSE(my.quiet, "%d packets sent, %d received, %0.f%% packet loss, time: %lu ms", sent, recv, loss, sum);
+  VERBOSE(my.quiet, "rtt min/avg/max = %d/%lu/%d ms", min, (sum/count), max);
+  return TRUE;
 }
 #pragma GCC diagnostic warning "-Wformat-zero-length"
+
+void sig_handler(int signo)
+{
+  switch (signo) {
+    default: 
+      my.loop = FALSE;
+      break;
+  }
+}
 
 int
 main(int argc, char *argv[])
 {
   URL     url = NULL;
   BOOLEAN res = FALSE;
+  struct sigaction sa;
+  sa.sa_handler = &sig_handler;
+  sa.sa_flags = SA_RESTART;
+  sigfillset(&sa.sa_mask);
+  sigaction(SIGHUP, &sa, NULL);
+  sigaction(SIGUSR1, &sa, NULL);
+  sigaction(SIGKILL, &sa, NULL); 
+  sigaction(SIGINT, &sa, NULL);
 
   url  =  __parse_cmdline(argc, argv);
   res  = __ajp_ping(url);
-
-  return res;
+ 
+  if (res == FALSE) {
+    exit(1);
+  } 
+  exit(0); 
 }
 
