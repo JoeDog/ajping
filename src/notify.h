@@ -23,6 +23,8 @@
 #ifndef NOTIFY_H
 #define NOTIFY_H 
 
+#include <joedog/boolean.h>
+
 typedef enum {
   DEBUG     = 0,
   WARNING   = 1,
@@ -34,6 +36,6 @@ void OPENLOG(char *program_name);
 void CLOSELOG(void);  
 void SYSLOG(LEVEL L, const char *fmt, ...);
 void NOTIFY(LEVEL L, const char *fmt, ...);
-
+void VERBOSE(BOOLEAN quiet, const char *fmt, ...);
 
 #endif/*NOTIFY_H*/  

@@ -143,7 +143,8 @@ NOTIFY(LEVEL L, const char *fmt, ...)
   __message(__OUT, L, fmt, ap);
   va_end(ap);
 
-  return;
+  
+return;
 }
 
 void
@@ -172,3 +173,15 @@ DISPLAY(int color, const char *fmt, ...)
   return;
 }
 
+
+void 
+VERBOSE(BOOLEAN quiet, const char *fmt, ...)
+{
+  va_list ap;
+  if (quiet) return;
+
+  va_start(ap, fmt);
+  __display(-1, fmt, ap);
+  va_end(ap);
+  return;
+}
