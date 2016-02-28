@@ -1,0 +1,16 @@
+To email a contributor remove "DELETE" from the email address.
+(The DELETEs are necessary as this list is published online.)
+
+2016/02/28 Jeffrey Fulmer <http://www.joedog.org/support/> 
+ * AJPING RELEASE         RELEASE_1-0-1-Feb-28-2016
+ * ChangeLog              Added to the distribution
+ * src/main.c             Added rtt stats and signal handling
+ * src/notify.c           Added VERBOSE(BOOLEAN, fmt, ...)
+ * src/notify.h           Added VERBOSE(BOOLEAN, fmt, ...)
+ * src/setup.h            Added my.quiet and my.ipv6
+ * src/sock.c             Added support for IPv6
+ * src/version.c          Version increment: 1.0.1
+
+2016/02/26 Jeffrey Fulmer <http://www.joedog.org/support/>
+ * AJPING initial commit
+
