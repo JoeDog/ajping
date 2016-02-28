@@ -133,5 +133,5 @@ AC_OUTPUT_COMMANDS([
   done
 ], [ VERSION=$VERSION DATE="$DATE" PROGRAM="$PROGRAM" AUTHOR="$AUTHOR" EMAIL="$EMAIL" ])
 
-AC_OUTPUT(Makefile src/Makefile include/Makefile doc/Makefile utils/Makefile)
+AC_OUTPUT(Makefile src/Makefile include/Makefile include/joedog/Makefile doc/Makefile utils/Makefile)
 
