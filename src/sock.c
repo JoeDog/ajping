@@ -42,7 +42,8 @@ struct SOCK_T
 
 size_t SOCKSIZE = sizeof(struct SOCK_T);
 
-private BOOLEAN __connect(SOCK this);
+private BOOLEAN __tcpv4_connect(SOCK this);
+private BOOLEAN __tcpv6_connect(SOCK this);
 private ssize_t __socket_write(int sock, const void *vbuf, size_t len);
 private int     __socket_block(SOCK this, BOOLEAN block);
 private BOOLEAN __socket_check(SOCK this, SDSET mode);
@@ -56,11 +57,17 @@ private BOOLEAN __socket_select(SOCK this, SDSET mode);
 SOCK
 new_socket(char *host, int port)
 {
-  SOCK this;
+  SOCK    this;
+  BOOLEAN res = FALSE;
   this = calloc(SOCKSIZE, 1);
   this->host = strdup(host);
   this->port = port; 
-  if (__connect(this) == FALSE) {
+  if (my.ipv6) {
+    res = __tcpv6_connect(this);
+  } else {
+    res = __tcpv4_connect(this);
+  }
+  if (res == FALSE) {
     this = socket_destroy(this);
     return this;
   }
@@ -85,7 +92,6 @@ socket_destroy(SOCK this)
 int
 socket_write(SOCK this, const void *buf, size_t len)
 {
-  int     type;
   size_t bytes;
 
   if ((bytes = __socket_write(this->sock, buf, len)) != len) {
@@ -99,7 +105,6 @@ socket_write(SOCK this, const void *buf, size_t len)
 ssize_t
 socket_read(SOCK this, void *vbuf, size_t len)
 {
-  int type;
   size_t      n;
   ssize_t     r;
   char       *buf;
@@ -351,13 +356,12 @@ return this->sock;
 }
 
 private BOOLEAN 
-__connect(SOCK this) 
+__tcpv4_connect(SOCK this) 
 {
   int    res = 0;
   int    herrno;
   struct sockaddr_in cli;
   struct hostent     *hp;
-  char   hn[512];
   int    conn;
 #if defined(__GLIBC__)
   struct hostent hent;
@@ -461,3 +465,84 @@ __connect(SOCK this)
   return (this->sock > 0);
 }
 
+private BOOLEAN 
+__tcpv6_connect(SOCK this)
+{
+  int    res;
+  int    conn;
+  char   tmp[100];
+  struct sockaddr_in6 cli;
+  struct hostent *hp;
+
+  this->sock = socket(AF_INET6, SOCK_STREAM, 0);
+  if ((this->sock = socket(AF_INET6, SOCK_STREAM, 0)) < 0) {
+    switch (errno) {
+      case EPROTONOSUPPORT: { NOTIFY(ERROR, "Unsupported protocol %s:%d",  __FILE__, __LINE__); break; }
+      case EMFILE:          { NOTIFY(ERROR, "Descriptor table full %s:%d", __FILE__, __LINE__); break; }
+      case ENFILE:          { NOTIFY(ERROR, "File table full %s:%d",       __FILE__, __LINE__); break; }
+      case EACCES:          { NOTIFY(ERROR, "Permission denied %s:%d",     __FILE__, __LINE__); break; }
+      case ENOBUFS:         { NOTIFY(ERROR, "Insufficient buffer %s:%d",   __FILE__, __LINE__); break; }
+      default:              { NOTIFY(ERROR, "Unknown socket error %s:%d",  __FILE__, __LINE__); break; }
+    } socket_close(this); return FALSE;
+  }
+ 
+  hp = gethostbyname2(this->host,AF_INET6);
+  if (hp == NULL) {
+    switch (h_errno) {
+      case HOST_NOT_FOUND: { NOTIFY(ERROR, "Host not found: %s\n", this->host);                           break; }
+      case NO_ADDRESS:     { NOTIFY(ERROR, "Host does not have an IP address: %s\n", this->host);         break; }
+      case NO_RECOVERY:    { NOTIFY(ERROR, "A non-recoverable resolution error for %s\n", this->host);    break; }
+      case TRY_AGAIN:      { NOTIFY(ERROR, "A temporary resolution error for %s\n", this->host);          break; }
+      default:             { NOTIFY(ERROR, "Unknown error code from gethostbyname for %s\n", this->host); break; }
+    } socket_close(this); return FALSE;
+  }
+
+  memset((void*) &cli, 0, sizeof(cli));
+  memcpy(&cli.sin6_addr, hp->h_addr, hp->h_length);
+  cli.sin6_flowinfo = 0;
+  cli.sin6_family   = AF_INET6;
+  cli.sin6_port     = htons(this->port);
+  memset(tmp, '\0', 100);
+  this->addr        = strdup(inet_ntop(AF_INET6, &(cli.sin6_addr), tmp, 100)); 
+
+  if ((__socket_block(this, FALSE)) < 0) {
+    NOTIFY(ERROR, "socket: unable to set socket to non-blocking %s:%d", __FILE__, __LINE__);
+    return FALSE;
+  }
+
+  conn = connect(this->sock, (struct sockaddr *)&cli, sizeof(struct sockaddr_in6));
+  if (conn < 0 && errno != EINPROGRESS) {
+    switch (errno) {
+      case EACCES:        {NOTIFY(ERROR, "Socket: access denied"          ); break;}
+      case EADDRNOTAVAIL: {NOTIFY(ERROR, "Socket: address is unavailable."); break;}
+      case ETIMEDOUT:     {NOTIFY(ERROR, "Socket: connection timed out."  ); break;}
+      case ECONNREFUSED:  {NOTIFY(ERROR, "Socket: connection refused."    ); break;}
+      case ENETUNREACH:   {NOTIFY(ERROR, "Socket: network is unreachable."); break;}
+      case EISCONN:       {NOTIFY(ERROR, "Socket: already connected."     ); break;}
+      default:            {NOTIFY(ERROR, "Socket: unknown network error." ); break;}
+    } socket_close(this); return FALSE;
+  } else {
+    if (__socket_check(this, READ) == FALSE) {
+      NOTIFY(ERROR, "Socket: read check timed out(%d) %s:%d", my.timeout, __FILE__, __LINE__);
+      socket_close(this);
+      return FALSE;
+    } else {
+      /**
+       * If we reconnect and receive EISCONN, then we have a successful connection
+       */
+      res = connect(this->sock, (struct sockaddr *)&cli, sizeof(struct sockaddr_in6));
+      if((res < 0)&&(errno != EISCONN)){
+        NOTIFY(ERROR, "Socket: unable to connect %s:%d", __FILE__, __LINE__);
+        socket_close(this);
+        return FALSE;
+      }
+      this->status = S_READING;
+    }
+  } /* end of connect conditional */
+
+  if ((__socket_block(this, TRUE)) < 0) {
+    NOTIFY(ERROR, "Socket: unable to set socket to non-blocking %s:%d", __FILE__, __LINE__);
+    return FALSE;
+  }
+  return (this->sock > 0);
+}
