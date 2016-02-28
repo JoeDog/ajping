@@ -43,7 +43,9 @@ struct CONFIG
   BOOLEAN color;        /* boolean, true for color, false for not  */
   int     timeout;      /* socket connection timeout value, def:10 */
   int     reps;         /* reps to run the test, default infinite  */ 
+  BOOLEAN ipv6;         /* true for IPv6 false for IPv4 default: 4 */
   BOOLEAN debug;        /* boolean, undocumented debug command     */
+  BOOLEAN loop;         /* boolean for ping loop signal falsifies  */
 };
 
 
