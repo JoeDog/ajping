@@ -26,7 +26,7 @@ WARN_CFLAGS       =    @WARN_CFLAGS@
 
 AM_CFLAGS         =    $(WARN_CFLAGS)
 
-SUBDIRS           =    . src utils doc
+SUBDIRS           =    . src utils doc include 
 
 DIST_SUBDIRS      =    $(SUBDIRS)
 
